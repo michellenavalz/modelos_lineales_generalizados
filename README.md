@@ -1,4 +1,4 @@
-# modelos_lineales_generalizados
+# Modelos Lineales Generalizados
 
 # Contenido
 1. Regresión lineal múltiple
