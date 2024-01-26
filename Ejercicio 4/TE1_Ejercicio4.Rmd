@@ -1,0 +1,373 @@
+---
+title: ""
+header-includes:
+   - \usepackage[spanish]{babel}
+   - \usepackage[utf8]{inputenc}
+   - \decimalpoint
+   - \usepackage{booktabs}
+   - \usepackage{longtable}
+   - \usepackage{array}
+   - \usepackage{multirow}
+   - \usepackage{wrapfig}
+   - \usepackage{float}
+   - \usepackage{colortbl}
+   - \usepackage{pdflscape}
+   - \usepackage{tabu}
+   - \usepackage{threeparttable}
+   - \usepackage{threeparttablex}
+   - \usepackage[normalem]{ulem}
+   - \usepackage{makecell}
+   - \usepackage{xcolor}
+   - \usepackage{helvet}
+   - \usepackage{vmargin}
+   - \setpapersize{A4}
+   - \setmargins{1.0cm}{1.0cm}{18cm}{26cm}{0pt}{0cm}{0pt}{1.0cm}
+   - \pagestyle{empty}
+output:
+  pdf_document:
+    keep_tex: yes
+  html_document:
+    df_print: paged
+---
+
+```{=tex}
+\setcounter{figure}{12}
+\setcounter{table}{7}
+```
+```{r setup, include=FALSE, warning=FALSE,message=FALSE}
+# Limpeiza de datos
+rm(list = ls(all.names = TRUE))
+gc()
+
+knitr::opts_chunk$set(error = F,fig.height = 4,fig.width = 8)
+
+# Paqueterias a utilizar
+library(ggplot2) # Graficas
+
+library(MASS) # Ajuste de distribucion bin. negativa
+
+library(ggResidpanel) # Verificación de supuestos
+
+library(DHARMa) # Verificación de supuestos
+
+library(multcomp) # Pruebas de hipotesis
+library(kableExtra) # Para un mejor manejo de tablas
+library(gridExtra)
+library(tidyverse)
+library(knitr)
+```
+
+```{=tex}
+\begin{center}
+  {\huge \textbf{Modelos lineales generalizados para datos de conteos}}
+\end{center}
+```
+La base de datos dada contiene información sobre el número de casos de cáncer de pulmón registrados entre 1968 y 1971 en cuatro ciudades de Dinamarca. En estos casos se registró también la edad de los pacientes. Hay que notar que los casos depende de forma inherente de la población de la ciudad, pues entre más grande la ciudad es mayor el número de casos que se pueden observar. Por esta razón, el estudio debe centrarse en las tasas de incidencia. De este modo, será posible analizar si se puede afirmar que a medida que aumenta la edad, se observa un incremento significativo en la incidencia de cáncer de pulmón.
+
+```{r echo=FALSE}
+# Carga de datos
+options(digits=4)
+Datos4 <- read.csv("Preg4.csv", header=TRUE, sep="," )
+
+# Cambiamos a factor las variables categoricas
+Datos4$City <- factor(Datos4$City)
+Datos4$Age <- factor(Datos4$Age)
+```
+
+En el Cuadro \ref{tab:Datos4} se presenta una *muestra aleatoria* de los datos para observar su estructura de acuerdo a las categorias (No son todos los datos proporcionados):
+
+```{r Datos4, include=TRUE, echo=FALSE, warning=FALSE, results='asis'}
+set.seed(9)
+# Generamos un head aleatorio de los datos
+Datos4 %>% sample_n(5) %>% 
+  kable(booktabs = T, 
+        align = "c", 
+        linesep = "", 
+        caption = "Muestra aleatoria de los datos proporcionados") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+La visualización de los datos a través de la Figura \ref{fig:DispDiagram1} es la siguiente:
+
+```{r DispDiagram1, include=TRUE ,echo=FALSE, fig.cap= "\\label{fig:DispDiagram1}Diagrama de Dispersión", results='asis'}
+# Visualización de datos
+g1 <- ggplot(data = Datos4, aes(x = Age,y = Cases/Pop, colour = City)) + 
+  geom_point(size = 3) + theme_light() + 
+  ggtitle("Diagrama de Dispersión de Edad y Tasa de Incidencia")
+
+g1
+```
+
+Es importante señalar que en el eje horizontal (*Age*), los grupos de edades se encuentran dispuestos en orden creciente, mientras que en el eje vertical (*Case/Pop*) se representa la tasa de incidencia de cada ciudad. Observamos que la tendencia que reflejan estos datos indica que, a medida que la edad avanza, independientemente de la ciudad, se registra un incremento en la tasa de incidencia.
+
+Procederemos a desarrollar modelos destinados a capturar el comportamiento de los datos, con el fin de proporcionar una respuesta a la interrogante planteada: "¿Se puede indicar que a mayor edad existe mayor incidencia de cáncer de pulmón?". No obstante, debido a la imposibilidad de comparar muestras aleatorias en el contexto de datos de conteo, dado que estas dependen del tamaño de la población, resulta necesario realizar un ajuste en la población para adecuarla a estos modelos: El ajuste requerido implica tomar el logaritmo de la población para estandarizarla. Así, empleando una muestra de nuestros datos, se presentarán como lo están en el Cuadro \ref{tab:modif}:
+
+```{r modif, include=TRUE, echo=FALSE, warning=FALSE}
+# Estandarización de los datos de las Poblaciones
+Datos4$logPop=log(Datos4$Pop)
+
+set.seed(9)
+# Generamos un head aleatorio de los datos
+Datos4 %>% sample_n(6) %>% 
+  kable(booktabs = T, 
+        align = "c", 
+        linesep = "", 
+        caption = "Muestra aleatoria de los datos de conteo") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+De esta manera, nos enfocaremos en la utilización de Modelos Lineales Generalizados para el análisis de datos de conteo. En una etapa inicial, se evaluaron dos modelos, ambos con distribución Poisson y función liga logarítmica:
+
+-   El primer modelo consideraba la totalidad de las variables en nuestra base de datos, incluyendo las dos variables categóricas (Age y City).
+-   El segundo modelo, con las mismas características de distribución y función liga, excluía la variable categórica City, manteniendo el resto de las variables.
+
+Con el propósito de simplificar el análisis, se optó por utilizar el segundo modelo, fundamentando esta elección en el resultado de una prueba de hipótesis posterior.
+
+$$H_0: \text{Se utiliza el modelo reducido} \hspace{3mm} vs \hspace{3mm} H_a: \text{Se utiliza el modelo completo}$$
+
+```{r include=TRUE, echo=FALSE, warning=FALSE}
+# AJUSTES DE LOS MODELOS
+
+# Ajuste del modelo considerando todas las variables de nuestra base de datos, además de las iteracciones que tienen entra cada una. Utilizaremos una distribución Poisson y función logaritmica
+fit1 <- glm(Cases ~ Age*City + offset(logPop),
+            family = poisson(link="log"), #Dist. Poisson y liga log
+            data=Datos4)
+
+# Ajuste del modelo excluyendo la variable categórica City. Considerando las iteracciones que tendrá la variable Age. Utilizaremos una distribución Poisson y función logaritmica
+fit2 <- glm(Cases ~ Age + offset(logPop), 
+            family = poisson(link="log"), #Dist. Poisson y liga log
+            data=Datos4)
+
+# Prueba de Hipótesis que nos permitirá seleccionar el modelo reducido
+anova(fit1,fit2,test = "Chisq")
+```
+
+Dado que estamos trabajando con un nivel de significancia de $\alpha=0.05$, notemos que
+
+$$0.32=P-value > \alpha=0.05$$
+
+por lo que no se rechaza $H_0$. Esto nos dice que no hay evidencia en contra de poder trabajar con el modelo reducido. Además, se utilizaron los criterios AIC y BIC para determinar qué modelo era mejor.
+
+```{r comp1, include=TRUE, echo=FALSE, warning=FALSE}
+# Dispersión de los parametros del modelo completo
+dis1 <- deviance(fit1)/df.residual(fit1)
+# Dispersión de los parametros del modelo reducido
+dis2 <- deviance(fit2)/df.residual(fit2)
+
+
+comparacion_AIC_BIC1 <- data.frame(
+AIC = c(AIC(fit1), AIC(fit2)), # Calculo de AIC
+BIC = c(BIC(fit1), BIC(fit2)),
+Dispersión_Parametros = c(dis1,dis2)) # Calculo de BIC
+
+# Nombramos las filas de nuestra tabla
+row.names(comparacion_AIC_BIC1) <- c("Modelo_completo",
+                                     "Modelo_reducido")
+  
+kable(comparacion_AIC_BIC1, booktabs = T, 
+        align = "c", 
+        linesep = "", 
+        caption = "Puntajes de AIC y BIC para ambos modelos") %>% 
+  kable_styling(latex_options = "HOLD_position")
+```
+
+Notar que en el Cuadro \ref{tab:comp1} los valores del modelo reducido son menores. Además, es importante señalar que la dispersión de los parámetros en el modelo reducido es más próxima a uno en comparación con el modelo completo, donde el resultado parece no estar bien definido.
+
+Posteriormente, se tomó la determinación de incorporar un tercer modelo para el análisis de los datos, caracterizado por una distribución Binomial Negativa y una función liga logarítmica. Siguiendo una configuración similar al segundo modelo, se excluyó la variable categórica "City" manteniendo el resto de las variables intactas.
+
+Mediante la utilización nuevamente de los criterios AIC y BIC, se concluyó que el modelo más adecuado para el análisis seguía siendo el segundo modelo, ya que presentaba los valores más bajos de AIC y BIC en comparación con los otros modelos considerados. Véase el Cuadro \ref{tab:comp2}
+
+```{r comp2, include=TRUE, echo=FALSE, warning=FALSE}
+# Ajuste Bin Negativo con el segundo modelo (solo con Age cómo categorica)
+# Y función logaritmica
+fit3 <- glm.nb(Cases ~ Age + offset(logPop),
+               data = Datos4, link = "log")
+
+comparacion_AIC_BIC2 <- data.frame(
+Distribución = c("Poisson","Poisson","Bin. Neg."),
+Funcion_Liga = c('Log','Log','Log'),
+AIC = c(AIC(fit1), AIC(fit2), AIC(fit3)), # Calculo de AIC
+BIC = c(BIC(fit1), BIC(fit2), BIC(fit3)) # Calculo de BIC
+) 
+
+# Nombramos a las filas
+row.names(comparacion_AIC_BIC2) <- c("Primer Modelo",
+                                     "Segundo Molelo",
+                                     "Tercer Modelo")
+  
+kable(comparacion_AIC_BIC2, booktabs = T, 
+        align = "c", 
+        linesep = "", 
+        caption = "Puntajes de AIC y BIC para los tres modelos") %>% 
+  kable_styling(latex_options = "HOLD_position")
+```
+
+Es por este motivo, por el cual procederemos a hacer la verifiación de supuestos para el segundo modelo:
+
+```{r Supuestos, echo=FALSE, fig.height=5, fig.width=7, warning=FALSE,fig.cap= "\\label{fig:Supuestos} Comprobación de supuestos"}
+
+# VERIFICACIÓN DE SUPUESTOS 
+set.seed(1234)
+fit1res <- simulateResiduals(fittedModel = fit2)
+plot(fit1res)
+```
+
+Vemos que, en la Figura \ref{fig:Supuestos}, las gráficas que se encuentran del lado izquierdo, no parece haber problemas con los supuestos, pues:
+
+-   $\textbf{KS test}$ - NO se rechaza: Se puede asumir una distribución Poisson con los residuales simulados.
+-   $\textbf{Dispersion test}$ - NO se rechaza: Se cumple la estimación de la varianza.
+-   $\textbf{Outlier test}$ - NO se rechaza: No hay que poner atención a un punto fuera de lo común.
+
+También, gracias a la Figura \ref{fig:Supuestos}, la gráfica del lado derecho, parece no haber problema con la linealidad.
+
+En virtud de que nuestro modelo satisface los supuestos establecidos, estamos en condiciones de proceder con el análisis de las tasas de incidencia en cada grupo de edad. Para llevar a cabo este análisis, haremos uso de intervalos de confianza simultáneos con un nivel de confianza del 95%. Estos intervalos se presentan gráficamente en el siguiente diagrama de dispersión.
+
+\newpage
+
+```{r Intervalos,include=TRUE, echo=FALSE, warning=FALSE, fig.cap= "\\label{fig:Intervalos} Diagrama de dispersión con intervalos de confianza"}
+# INTERVALOS DE CONFIANZA
+
+# log(mu_y/t)=b0+b1x
+#            =log(pop)+ b0 + b1Age[55-59] + b2Age[60-64] + b3Age[65-69] + b4Age[70-74] 
+
+# Si el interés sólo son las tasas, ya no es necesario tener el
+# término offset, pues ese sólo modifica los conteos.
+# Basta con la parte del componente sistemático asociado a los
+# parámetros. Utilizaremos multcomp 
+
+K=matrix(c(1,0,0,0,0,
+           1,1,0,0,0,
+           1,0,1,0,0,
+           1,0,0,1,0,
+           1,0,0,0,1), ncol=5, nrow=5, byrow=TRUE)
+
+fitE <- glht(fit2, linfct = K)
+fitci <- confint(fitE, level = 0.95)
+
+# Creamos un Dataframe con los intervalos y ajuste de recta
+# para poder unirlo con nuestra base de datos
+Interval_dimensions <- data.frame('Low' = exp(fitci$confint[,2]),
+                                  "High" = exp(fitci$confint[,3]),
+                                  'Age' = c('40-54','55-59','60-64','65-69','70-74'),
+                                  'Estimate' =exp(fitci$confint[,1]) )
+
+# Convertimos la variable Age a factor ya que se utilizará como llave primaria al unir los dataframes
+Interval_dimensions$Age <- as.factor(Interval_dimensions$Age)
+# Realizamos un INNER JOIN para juntar los dataframes, utilizando
+# a la variable Age como Primary Key
+Datos4 <- merge(Datos4, Interval_dimensions, by = 'Age')
+
+ggplot(Datos4, aes(x = Age, y = Estimate, group = 1))+
+  geom_line() + theme_light() +
+  geom_point(aes(x = Age, y = Cases/Pop, colour = City), size = 3) +
+  geom_ribbon(aes(ymin = Low, ymax = High), fill = "plum", alpha = 0.5) +
+  labs(x = "Age", y = "Cases/Pop") +
+  ggtitle("Gráfico con Intervalos de Confianza")
+
+```
+
+A partir de este punto, se puede observar en la Figura \ref{fig:Intervalos} que sí existe un aumento en la incidencia de cáncer de pulmón a medida que aumenta la edad. Es evidente que al comparar los grupos de edad iniciales con los últimos, el aumento de los intervalo en la tasa de incidencia de cáncer de pulmón se vuelve más notable.
+
+Como un segundo enfoque, se consideró el punto medio definido entre cada categoria de edad para así considerarla como una variable continua.
+
+```{r, include=FALSE, echo=FALSE, warning=FALSE}
+# Volvemos a traer los datos naturales
+Datos4 <- read.csv("Preg4.csv", header=TRUE, sep="," )
+
+# Creamos una función para calcular el valor medio dentro de cada intervalo de edades
+ age_midpoint <- function(intervalo) {
+   # Dividir el intervalo en dos números
+   numeros <- as.numeric(unlist(strsplit(intervalo, '-')))
+   # Calcular el valor medio
+   valor_medio <- mean(numeros)
+   return(valor_medio)
+ }
+ 
+# Aplicar la función para calcular los valores medios y guardarlos en una nueva columna
+Datos4$Ageprima <- sapply(Datos4$Age, age_midpoint)
+ 
+Datos4$logPop=log(Datos4$Pop)
+```
+
+Con la incorporación de la nueva covariable denominada "$Ageprima$", se llevaron a cabo ajustes de modelos que emplearon distribuciones Poisson o Binomial Negativa, ambos con ligas logarítmicas. Asimismo, se consideró la inclusión o exclusión del aporte de esta misma covariable al cuadrado, es decir, "$Ageprima^2$".
+
+```{r warning=FALSE, include=FALSE}
+# Modelos ajustados
+fit1 <- glm(Cases ~ Ageprima + offset(logPop), family = poisson(link="log"), data=Datos4)  
+fit2 <- glm(Cases ~ Ageprima + I(Ageprima^2) + offset(logPop), family = poisson(link="log"), data=Datos4)  
+fit3 <- glm.nb(Cases ~ Ageprima + offset(logPop), link = "log", data=Datos4)  
+fit4 <- glm.nb(Cases ~ Ageprima + I(Ageprima^2) + offset(logPop), link = "log", data=Datos4)  
+```
+
+En el Cuadro \ref{tab:AIC.BIC.4} se muestran los valores de los índices AIC y BIC obtenidos para cada modelo.
+
+```{r AIC.BIC.4, echo=FALSE, warning=FALSE}
+comparacion_AIC_BIC4 <- data.frame(
+  Distribución = c('Poisson','Poisson','Bin. Neg.','Bin. Neg.'),
+  Liga = c('Log','Log','Log','Log'),
+  Ageprima_cuadrada = c('NO','SI','NO','SI'),
+  AIC = c(AIC(fit1), AIC(fit2), AIC(fit3), AIC(fit4)),
+  BIC = c(BIC(fit1), BIC(fit2), BIC(fit3), BIC(fit4)) )
+
+row.names(comparacion_AIC_BIC4) <- c("Modelo 1", "Modelo 2", 
+                                     "Modelo 3", "Modelo 4")
+
+kable(comparacion_AIC_BIC4, booktabs = T, 
+        align = "c", 
+        linesep = "", 
+        caption = "Puntajes de AIC y BIC para los modelos ajustados") %>% 
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+Notamos que el segundo ajuste es el que cuenta con los menores índices, por lo tanto se seguirá el análisis únicamente con este.
+
+```{r, include=FALSE}
+# Regla de dedo para analizar si hay un problema
+deviance(fit4)/df.residual(fit4) 
+```
+
+En la Figura \ref{fig:supuestos2} se tiene el análisis de supuestos, con la cual se puede concluir que
+
+-   $\textbf{KS test}$ - NO se rechaza: Se puede asumir una distribución Poisson con los residuales simulados.
+-   $\textbf{Dispersion test}$ - NO se rechaza: Se cumple la estimación de la varianza.
+-   $\textbf{Outlier test}$ - NO se rechaza: No hay que poner atención a un punto fuera de lo común.
+
+```{r supuestos2, include=TRUE, echo=FALSE, warning=FALSE, fig.cap="\\label{fig:supuestos2} Comprobación de supuestos",  fig.height=4.3}
+# Simulación de residuales quantile
+set.seed(1234)
+fit2res <- simulateResiduals(fittedModel = fit2)
+plot(fit2res)
+```
+
+Además de que tampoco parece haber problema con la linealidad. Por lo tanto, parece plausible continuar con este modelo.
+
+\newpage
+
+Finalmente, en la Figura \ref{fig:confint_plot} se muestra la curva ajustada con sus respectivos intervalos de confianza.
+
+```{r confint_plot, echo=FALSE, warning=FALSE, fig.cap="\\label{fig:confint_plot} Comportamiento del modelo ajustado, con los intervalos de confianza sombreados", fig.height=3.7, fig.width=8}
+ age <- seq(from = 35, to = 80, by = 1) # Creamos una malla con valores para la edad
+ K <- cbind(1, age, age^2) # Se une con los valores que se evaluaran en el modelo
+ fitE <- glht(fit2, linfct = K) 
+ fitci <- confint(fitE, level = 0.95) # Se obtienen los intervalos de confianza a un nivel de 95%
+
+ # Crear un data frame con los datos de los intervalos
+ df <- data.frame(age = age, 
+                  coef = exp(coef(fitE)), 
+                  upr = exp(fitci$confint[,"upr"]), 
+                  lwr = exp(fitci$confint[,"lwr"]))
+ 
+ # Se crea el gráfico con ggplot2
+ ggplot(df, aes(x = age, y = coef)) +
+   geom_line() + theme_light() +
+   geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "plum", alpha = 0.5) +
+   labs(x = "Age", y = "Cases/Pop") +
+   ggtitle("Gráfico con Intervalos de Confianza") +
+   geom_vline(xintercept = 40, linetype = "dashed", color = "black") +
+   geom_vline(xintercept = 74, linetype = "dashed", color = "black") + 
+   ylim(0, 0.04) + xlim(35, 77)
+ 
+```
+
+De esta manera, a partir de la observación del gráfico, es evidente el patrón ascendente del modelo. Específicamente, en el intervalo de edades $[40,74]$, que es de importancia en nuestro estudio y se encuentra resaltado entre línea punteadas, se cumple que a medida que aumenta la edad, la incidencia de cáncer de pulmón también se incrementa.

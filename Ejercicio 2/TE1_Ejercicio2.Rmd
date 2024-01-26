@@ -1,0 +1,350 @@
+---
+title: ""
+header-includes:
+   - \usepackage[spanish]{babel}
+   - \usepackage[utf8]{inputenc}
+   - \decimalpoint
+   - \usepackage{booktabs}
+   - \usepackage{longtable}
+   - \usepackage{array}
+   - \usepackage{multirow}
+   - \usepackage{wrapfig}
+   - \usepackage{float}
+   - \usepackage{colortbl}
+   - \usepackage{pdflscape}
+   - \usepackage{tabu}
+   - \usepackage{threeparttable}
+   - \usepackage{threeparttablex}
+   - \usepackage[normalem]{ulem}
+   - \usepackage{makecell}
+   - \usepackage{xcolor}
+   - \usepackage{helvet}
+   - \usepackage{vmargin}
+   - \setpapersize{A4}
+   - \setmargins{1.0cm}{1.0cm}{18cm}{26cm}{0pt}{0cm}{0pt}{1.0cm}
+   - \pagestyle{empty}
+output:
+  pdf_document:
+    keep_tex: yes
+  html_document:
+    df_print: paged
+---
+
+\setcounter{figure}{5}
+
+```{=tex}
+\begin{center}
+  {\huge \textbf{Ejercicio 2: Modelos lineales generalizados para datos continuos}}
+\end{center}
+```
+```{r, include=FALSE}
+library(car)
+library(DHARMa)
+library(latex2exp)
+library(multcomp)
+library(purrr) 
+```
+
+Considere los mismos datos que en la pregunta 1.
+
+## I. presente un modelo que le parezca adecuado para modelar E(bpsystol; bmi,sex, age).
+
+Como podemos ver, los datos de la variable dependiente (bpsystol) son continuos, consideraremos un conjunto de modelos donde las opciones de distribuciones son: Normal (o Gaussiana), Gamma e Inversa Gaussiana y para cada caso tenemos un conjunto de funciones liga asociadas, las cuales son: identidad, logaritmica, inversa, e inversa cuadrada.
+
+Como debemos explorar cada modelo con cada distribución y cada funcion liga posible y elegir el modelo, la elección del modelo se realizará con los criterios AIC y BIC.
+
+El proceso que se realizará es buscar todas las posibles combinaciones entre las distribuciones y las funciones liga que sean posibles para la distribución, esto se logra mediante la creación de dos mallas, una correspondiente a la lista de distribuciones y otra a la lista de funciones liga, se itera sobre cada una y se obtiene el ajuste del modelo lineal generalizado y con su respectivo AIC y BIC. El criterio para elegir el ajuste es mediante el criterio AIC, escogiendo así al modelo asociado al menor valor.
+
+```{r, include=FALSE}
+#Modelos lineales generalizados para datos continuos
+
+#presente un modelo que le parezca adecuado para modelar E(bpsystol; bmi,sex, age)
+
+datos<- read.csv("Preg1B.csv")
+malla=seq(from = -3, to = 3, by = .5)
+Pot <- cbind("pot", malla)
+# diferentes opciones a probar para el componente lineal:
+CompLin=rbind(Pot)
+# creamos un vector que será la malla 
+#con las diferentes opciones a probar:
+Distribuciones=c("gaussian", "Gamma", "inverse.gaussian")
+
+#Notemos que por las distriuciones posibles, tenemos
+# las siguientes opiciones para la Función liga
+# i) inverse
+# ii) identity
+# iii) log
+# iv) 1/mu^2 (sólo IG)
+
+# Malla con las diferentes opciones de función liga a probar:
+FunLigas=c("identity", "log", "inverse", "1/mu^2")
+
+#Tamaño de las listas
+nFunLigas=length(FunLigas)
+nDist=length(Distribuciones)
+nCompLin=dim(CompLin)[1]
+
+#Creamos listas vacías 
+ModelList=list(NA)  #guardar resultados del ajuste, objeto glm
+AICList=list(NA)    #guardar el AIC del modelo
+BICList=list(NA)    #guardar el BIC del modelo
+FormList=list(NA)   #guardar la f?rmula usada para el ajuste
+
+#Iteramos sobre la malla relacionada a las distribuciones y sobre la
+#malla relacionada a las funciones liga.
+#
+index=0
+for(k in 1:nCompLin){
+  for(i in 1:nCompLin){
+    if(CompLin[k,2]==0){
+      if(CompLin[i,2]==0){
+      formstring=paste0("bpsystol ~ I(log(bmi))+I(log(age))+sex")}
+      else{
+        formstring=paste0("bpsystol ~ I(log(bmi))+I(age^(",  CompLin[i,2], "))+sex")}}
+    else{
+          if(CompLin[i,2]==0){
+            formstring=paste0("bpsystol ~I(bmi^(",  CompLin[k,2],  "))","+I(log(age)) + sex")}
+          else{
+            formstring=paste0("bpsystol ~I(bmi^(",  CompLin[k,2],  "))","+I(age^(", CompLin[i,2], ")) +sex")}
+    }
+    form <- as.formula(formstring)
+    for(j in 1:nDist){
+      for(l in 1:nFunLigas){
+        #definici?n del argumento family
+        if(FunLigas[l]=="1/mu^2"){
+          if(Distribuciones[j]=="inverse.gaussian"){
+            index=index+1
+            Dist=get(Distribuciones[j])  #obtener la funci?n a usar
+            Mod.A.Prueba=glm(form, data=datos, family = Dist(link=FunLigas[l]))
+            ModelList[[index]]=Mod.A.Prueba
+            AICList[[index]]=AIC(Mod.A.Prueba)
+            BICList[[index]]=BIC(Mod.A.Prueba)
+            FormList[[index]]=formstring
+          }
+        }else{
+          index=index+1
+          Dist=get(Distribuciones[j])
+          Mod.A.Prueba=glm(form, data=datos, family = Dist(link=FunLigas[l]))
+          ModelList[[index]]=Mod.A.Prueba
+          AICList[[index]]=AIC(Mod.A.Prueba)
+          BICList[[index]]=BIC(Mod.A.Prueba)
+          FormList[[index]]=formstring
+        }
+      }
+    }
+    }
+    }
+
+
+#índice del modelo con menor AIC
+#modelo con menor AIC
+
+AIC_vec<- unlist(AICList)
+MinAIC1<-which.min(AIC_vec)
+ModMinAIC1<-ModelList[[MinAIC1]]
+compo_lin<-FormList[[MinAIC1]]
+ModMinAIC1$family
+distribution_aic1 <- ModMinAIC1$family[1]
+f_liga_aic1<- ModMinAIC1$family[2]
+summary(ModMinAIC1)
+AIC_minAIC1<- round(AIC(ModMinAIC1),4)
+BIC_minAIC1<- round(BIC(ModMinAIC1),4)
+
+#modelo con el segundo menor AIC
+MinAIC2<- which.min(AIC_vec[-MinAIC1])
+ModelList2<-ModelList[-MinAIC1]
+ModMinAIC2<-ModelList2[[MinAIC2]]
+compo_lin_list2<-FormList[-MinAIC1]
+(compo_lin2<-compo_lin_list2[[MinAIC2]])
+ModMinAIC2$family
+distribution_aic2 <- ModMinAIC2$family[1]
+f_liga_aic2<- ModMinAIC2$family[2]
+summary(ModMinAIC2)
+AIC_minAIC2<- round(AIC(ModMinAIC2),4)
+BIC_minAIC2<- round(BIC(ModMinAIC2),4)
+
+#modelo con el tercer menor AIC
+MinAIC3<- which.min(AIC_vec[-MinAIC1][-MinAIC2])
+ModelList3<-ModelList2[-MinAIC2]
+ModMinAIC3<-ModelList3[[MinAIC3]]
+compo_lin_list3<-compo_lin_list2[-MinAIC2]
+compo_lin3<-compo_lin_list3[[MinAIC3]]
+ModMinAIC3$family
+distribution_aic3 <- ModMinAIC3$family[1]
+f_liga_aic3<- ModMinAIC3$family[2]
+summary(ModMinAIC3)
+AIC_minAIC3<- round(AIC(ModMinAIC3),4)
+BIC_minAIC3<- round(BIC(ModMinAIC3),4)
+
+
+#indice del modelo con menor BIC
+
+MinBIC=which.min(unlist(BICList))
+ModMinBIC=ModelList[[MinBIC]]
+summary(ModMinBIC)
+ModMinBIC$family
+distribution_bic1 <- ModMinBIC$family[1]
+f_liga_bic1<- ModMinBIC$family[2]
+
+AIC_minBIC1 <-round(AICList[[MinBIC]],4)
+BIC_minBIC1<- BICList[[MinBIC]]
+
+#Notemos que el modelo con menor AIC es el mismo que el modelo con menor BIC
+```
+
+El modelo que se encontró con menor AIC, que es tambien el de menor BIC es ModMinAIC1 del Cuadro 1, donde se presentan los siguientes datos del modelo: Familia, la función Liga, la Formula, el AIC y el BIC
+
+```{=tex}
+\begin{table}[h!]
+\centering
+\begin{tabular}{cccccc}
+\hline
+Modelo   & Familia & Fun liga & Formula & AIC & BIC \\ \hline
+ModMinAIC1  & $`r distribution_aic1`$ & $`r f_liga_aic1`$ &  $\mu_i = \beta_0+ \beta_1 \cdot (bmi)^{1.5}+ \beta_2 \cdot (age)^2 + \beta_3 \cdot (sex)$   & $`r AIC_minAIC1`$ & $`r BIC_minAIC1`$  \\ \hline
+ModMinAIC2  & $`r distribution_aic2`$ & $`r f_liga_aic2`$ &  $\mu_i = \beta_0+ \beta_1 \cdot (bmi)^{1.5}+ \beta_2 \cdot (age)^{2.5} + \beta_3 \cdot (sex)$   & $`r AIC_minAIC2`$ & $`r BIC_minAIC2`$   \\ \hline
+ModMinAIC3  & $`r distribution_aic3`$ & $`r f_liga_aic3`$ &  $\mu_i = \beta_0+ \beta_1 \cdot (bmi)+ \beta_2 \cdot (age)^2 + \beta_3 \cdot (sex)$     & $`r AIC_minAIC3`$      & $`r BIC_minAIC3`$    \\ \hline
+\end{tabular}
+\label{table:3}
+\end{table}
+```
+$\hspace{8cm}$ Cuadro 1
+
+Para afirmar que es el modelo adecuado, se tiene que verificar que los supuestos se cumplen, ya que el criterio AIC no nos indica si el modelo tiene sentido o no (Prueba asociada a la tabla anova) o si cumple con los supuestos.
+
+Prueba asociada a la tabla ANOVA
+
+Nos indica que al menos una variable incluida en el modelo aporta información para la estimación de E(bpsystol; bmi, age, sex)
+
+```{r, include=FALSE}
+#Tests que se basan en el cociente de verosimilitud
+# tipo prueba F asociada a la tabla anova de un modelo de reg múltiple
+
+Anova(ModMinAIC1, test.statistic=c("F"))
+```
+
+Al realizar la prueba de hipotesis, notamos que cada variable está aportando información individualmente par a modelar la E(bpsystol; bmi, age, sex)
+
+```{r verifsup,fig.width=7.5, fig.height=3.5, echo=FALSE, fig.cap="\\label{fig:verifsup}Graficas para analizar los supuestos del modelo", message=FALSE, warning=FALSE}
+set.seed(123)
+glm1res <- simulateResiduals(fittedModel = ModMinAIC1)
+plot(glm1res)
+```
+
+\newpage
+
+Deacuerdo con la Figura \ref{fig:verifsup} no se observa ninguna evidencia contra los supuestos, en la primera grafica, los datos se ajustan bien a la recta, por lo que podriamos decir que no hay problema con el componente aleatorio y en la segunda gráfica no se observa problemas con el componente lineal, ya que no vemos huecos en cada rectangulo. Entonces el modelo cumple los supuestos, además de tener un AIC bajo. Por lo tanto podemos decir que el modelo *ModMinAIC1* del cuadro 1 es el adecuado.
+
+Por lo que la expresión matematica para modelar E(bpsystol; bmi, age, sex) es:
+
+$$\mathbb{E}(bpsystol; bmi, age, sex) = \mu_i$$
+
+Tenemos que la función liga es la identidad, entonces su inversa es nuevamente la identidad, entonces:
+
+$$\mathbb{E}(bpsystol; bmi, age, sex) = \mu_i = \beta_0+ \beta_1 \cdot (bmi)^{1.5}+ \beta_2 \cdot (age)^2 + \beta_3 \cdot (sex)$$
+
+Notemos que el modelo es sencillo para realizar interpretaciones ya que no hay ninguna tranformación
+
+## 2.1 ¿Se puede indicar que para una persona de cierta edad y sexo, tener un índice de masa corporal alto se asocia con una alta presión arterial sistólica?
+
+Lo que quiere decir es que para cualquier persona de cualquier sexo, entre más aumente la masa corporal, la persión arterial sistolica tambien aumentará, lo que lo podemos traducir a
+
+si fijamos la edad a un valor $x$ y al sexo a una variable tipo $k$ y sea $a>b$ entonces se debe cumplir:
+
+$$\mathbb{E}(bpsystol; bmi=a, age=x, sex=k)> \mathbb{E}(bpsystol; bmi=b, age=x, sex=k)$$ Ulilizando nuestro modelo $\mathbb{E}(bpsystol; bmi, age, sex) =\mu_i = \beta_0+ \beta_1 \cdot (bmi)^{1.5}+ \beta_2 \cdot (age)^2 + \beta_3 \cdot (sex)$, sustituimos los valores fijos x correpondiente a la edad y k corresponiente a la edad.
+
+$$\beta_0+ \beta_1 \cdot (a)^{1.5}+ \beta_2 \cdot (x)^2 + \beta_3 \cdot (k)>\beta_0+ \beta_1 \cdot (b)^{1.5}+ \beta_2 \cdot (x)^2 + \beta_3 \cdot (k)$$ $$\beta_1 \cdot (a)^{1.5}>\beta_1 \cdot (b)^{1.5} \Longrightarrow \beta_1 \cdot (a)^{1.5}- \beta_1 \cdot (b)^{1.5} >0 \Longrightarrow \beta_1 \cdot( (a)^{1.5}-(b)^{1.5} )>0 $$
+
+Como $a>b \Longrightarrow (a)^{1.5}>(b)^{1.5} \Longrightarrow (a)^{1.5}-(b)^{1.5}>0$ Entonces para que se cumpla la afirmación "tener un índice de masa corporal alto se asocia con una alta presión arterial sistólica", necesitamos que $\beta_1>0$
+
+Entonces se realizara la prueba de hipotesis (Ponemos lo que nos interesa en la hipotesis alternativa para acotar el error tipo 2)
+
+$$H_0: \beta_1\leq0 ~~~v.s~~~ H_a: \beta_1>0$$
+
+```{r, include=FALSE}
+mat<- matrix(c(0,1,0,0), ncol=4, nrow=1, byrow=TRUE)
+c<- 0
+summary(glht(ModMinAIC1, 
+             linfct=mat, 
+             rhs=c, 
+             alternative = "greater"))
+```
+
+Realizando la prueba de hipotesis se obtiene un $p-value= 1.81e-09 < 0.05$, por lo que se rechaza $H_0$, es decir encontramos evidencia en contra de $\beta_1\leq0$, por lo que sería plaucible decir que $\beta_1>0$, es decir que la afirmación "tener un índice de masa corporal alto se asocia con una alta presión arterial sistólica" es cierta.
+
+## 2.2 Gráficas resumen con la estimación puntual asociada a la relación entre bpsystol y bmi, considerando sólo tres posibles edades: 30, 50 y 64,
+
+```{r, include=FALSE}
+b0<- coefficients(ModMinAIC1)[1]
+b1<- coefficients(ModMinAIC1)[2]
+b2<- coefficients(ModMinAIC1)[3]
+b3<- coefficients(ModMinAIC1)[4]
+```
+
+```{r EstimPunt, fig.width=7, fig.height=4, echo=FALSE, fig.cap="\\label{fig:EstimPunt}Estimación puntual asociada a la relación entre bpsystol y bmi, para edades 30, 50 y 64", message=FALSE, warning=FALSE, results='asis'}
+par(mfrow=c(1,3)) 
+
+Estim<-function(X1){ b0+b1*X1^(1.5)+b2*(30)^(2)+ b3*1}
+curve(Estim, from = min(datos$bmi), to = max(datos$bmi),
+      col = "blue",  xlab = TeX("$X=bmi$"), ylab=TeX("$bpsystol$"),main = "30 años")
+Estim<-function(X1){ b0+b1*X1^(1.5)+b2*(30)^(2)+ b3*2}
+curve(Estim, from = min(datos$bmi), to = max(datos$bmi),
+      col = "#B03060",add= T)
+l <- expression(paste("Hombre"), paste("Mujer"))
+legend("bottomright", legend = l, lty = c(1, 1), bty = "n", col = c("blue", "#B03060"), inset = .02, y.intersp = .75)
+grid()
+# 50 añop
+Estim<-function(X1){ b0+b1*X1^(1.5)+b2*(50)^(2)+ b3*1}
+curve(Estim, from = min(datos$bmi), to = max(datos$bmi),
+      col = "blue",  xlab = TeX("$X=bmi$"), ylab=TeX("$bpsystol$"),main = "50 años")
+Estim<-function(X1){ b0+b1*X1^(1.5)+b2*(50)^(2)+ b3*2}
+curve(Estim, from = min(datos$bmi), to = max(datos$bmi),
+      col = "#B03060",add= T)
+l <- expression(paste("Hombre"), paste("Mujer"))
+legend("bottomright", legend = l, lty = c(1, 1), bty = "n", col = c("blue", "#B03060"), inset = .02, y.intersp = .75)
+grid()
+
+# 64 años
+Estim<-function(X1){ b0+b1*X1^(1.5)+b2*(64)^(2)+ b3*1}
+curve(Estim, from = min(datos$bmi), to = max(datos$bmi),
+      col = "blue",  xlab = TeX("$X=bmi$"), ylab=TeX("$bpsystol$"),main = "64 años")
+Estim<-function(X1){ b0+b1*X1^(1.5)+b2*(64)^(2)+ b3*2}
+curve(Estim, from = min(datos$bmi), to = max(datos$bmi),
+      col = "#B03060",add= T)
+l <- expression(paste("Hombre"), paste("Mujer"))
+legend("bottomright", legend = l, lty = c(1, 1), bty = "n", col = c("blue", "#B03060"), inset = .02, y.intersp = .75)
+grid()
+```
+
+En la Figura \ref{fig:EstimPunt} se puede observar que para las edades observadas (30, 50 y 64) la presión arterial sistólica va creciendo conforme el índice de masa corporal (bmi) va aumentando, este comportamiento sucede para ambos sexos (Femenino y masculino). Ademas es evidente en las 3 graficas que la presión arterial sistólica es mayor en hombres que en mujeres ya que la curva de los hombres (color azul) siempre está por arriba de la curva de las mujeres (color rosa).
+
+## Comparación de modelos
+
+```{r, include=FALSE}
+fit<- lm(bpsystol~bmi+age+sex, data= datos)
+fit2<-lm(bpsystol~bmi+age+sex, data = datos, weights = 1/(age)^0.5)
+AIC_fit<-round(AIC(fit),2)
+AIC_fit2<-round(AIC(fit2),2)
+BIC_fit<-round(BIC(fit),2)
+BIC_fit2<-round(BIC(fit2),2)
+```
+
+```{=tex}
+\begin{table}[h!]
+\centering
+\begin{tabular}{cccccc}
+\hline
+Modelo & Info.Ad1 & Info.Ad2 & Formula & AIC & BIC \\ \hline
+ModMinAIC1  & $`r distribution_aic1`$ & $`r f_liga_aic1`$ &  $\mu_i = \beta_0+ \beta_1 \cdot (bmi)^{1.5}+ \beta_2 \cdot (age)^2 + \beta_3 \cdot (sex)$   & $`r AIC_minAIC1`$ & $`r BIC_minAIC1`$  \\ \hline
+ModMinAIC2  & $`r distribution_aic2`$ & $`r f_liga_aic2`$ &  $\mu_i = \beta_0+ \beta_1 \cdot (bmi)^{1.5}+ \beta_2 \cdot (age)^{2.5} + \beta_3 \cdot (sex)$   & $`r AIC_minAIC2`$ & $`r BIC_minAIC2`$   \\ \hline
+ModMinAIC3  & $`r distribution_aic3`$ & $`r f_liga_aic3`$ &  $\mu_i = \beta_0+ \beta_1 \cdot (bmi)+ \beta_2 \cdot (age)^2 + \beta_3 \cdot (sex)$     & $`r AIC_minAIC3`$      & $`r BIC_minAIC3`$    \\ \hline
+RLM & sin transform & - &$\mu_i = \beta_0+ \beta_1 \cdot (bmi)+ \beta_2 \cdot (age) + \beta_3 \cdot (sex)$ & $`r AIC_fit`$ & $`r BIC_fit`$ \\ \hline
+RLMP & Reg Pond & $w_i = \frac{1}{age^{0.5}}$ &$\mu_i = \beta_0+ \beta_1 \cdot (bmi)+ \beta_2 \cdot (age) + \beta_3 \cdot (sex)$ & $`r AIC_fit2`$ & $`r BIC_fit2`$ \\ \hline
+\end{tabular}
+\label{table:3}
+\end{table}
+```
+$\hspace{8cm}$ Cuadro 2
+
+Con base al Cuadro 2, podemos notar que el modelo de regresión lineal multiple ponderada y el modelo ModMinAIC1 son modelos con fórmulas muy sencillas para realizar interpretaciones, ambos cumplen los supuestos, sin embargo, el modelo que elegimos usar es el ModMinAIC1 ya que tiene los valores AIC y BIC más pequeños y en comparación con otros modelos lineales generalizados, la función liga es la identidad por lo que la esperanza queda como una combinación lineal de los parametros del modelo y hace un poco más facil la interpretación a personas que usarán el modelo.
+
+En resumen, podemos decir que con ambos modelos (Regresión lineal multiple ponderanda y modelos lineales generalizados) se obtuvieron las siguientes conclusiones: la presión arterial sistólica va creciendo conforme el índice de masa corporal, esto sucede para cualquier persona de cualquier sexo y edad, tambien es importante destacar que conforme va aumentando la edad de las personas, la presión arterial sistólica va en aumento y que los hombres tienen una mayor la presión arterial sistólica que las mujeres.
